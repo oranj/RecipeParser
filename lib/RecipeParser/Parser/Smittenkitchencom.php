@@ -38,6 +38,7 @@ class RecipeParser_Parser_Smittenkitchencom {
             $recipe->time['total'] = $time->textContent;
         }
 
+        $ingredientsFound = false;
         foreach($xpath->query('//div[@class="jetpack-recipe-ingredients"]/ul/node()') as $node) {
             if ( $node instanceof \DOMText ) {
                 continue;
@@ -45,12 +46,43 @@ class RecipeParser_Parser_Smittenkitchencom {
 
             if ( $node->tagName == 'h5' ) {
                 $recipe->addIngredientsSection(RecipeParser_Text::formatSectionName($node->textContent));
+                $ingredientsFound = true;
             } else if ( $node->attributes && $node->attributes->getNamedItem('itemprop')->nodeValue == 'recipeIngredient' ) {
                 $recipe->appendIngredient(RecipeParser_Text::formatAsOneLine($node->textContent));
+                $ingredientsFound = true;
             }
         }
 
         $recipe->resetInstructions();
+
+        $servesFound = false;
+        if ( ! $ingredientsFound ) {
+            foreach( $xpath->query('//div[@class="entry-content"]/p') as $paragraph ) {
+                $text = $paragraph->textContent;
+
+                if ( preg_match( '/^Serves/i', $text )) {
+                    $recipe->yield = $text;
+                } else {
+                    $html = $paragraph->ownerDocument->saveXml( $paragraph );
+                    preg_match_all('/\<br\s*\/?\>/si', $html, $matches);
+
+                    if ( ! $ingredientsFound && count( $matches[0] ) > 2 ) {
+                        $ingredients = explode( "\n", $text );
+                        foreach ( $ingredients as $ingredient ) {
+                            $recipe->appendIngredient(RecipeParser_Text::formatAsOneLine($ingredient));
+                        }
+                        $ingredientsFound = true;
+                    } else if ( $ingredientsFound ) {
+                        $recipe->appendInstruction(RecipeParser_Text::formatAsOneLine($text));
+                    }
+                }
+            }
+        }
+
+        foreach( $xpath->query('//div[@class="smittenkitchen-print-hide"]') as $descriptionBlock ) {
+            $recipe->description = $descriptionBlock->textContent;
+        }
+
         foreach($xpath->query('//div[@class="jetpack-recipe-directions"]/node()') as $node) {
             $recipe->appendInstruction(RecipeParser_Text::formatAsOneLine($node->nodeValue));
         }
